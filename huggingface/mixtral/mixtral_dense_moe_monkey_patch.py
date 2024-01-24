@@ -22,6 +22,10 @@
     Tested for transformers==4.36.2.
 """
 
+import math
+import random
+
+import unittest
 import torch
 import torch.nn.functional as F
 
@@ -61,3 +65,34 @@ def replace_mixtral_moe_with_dense_impl():
 
     MixtralBLockSparseTop2MLP.forward = mlp_forward
     MixtralSparseMoeBlock.forward = moe_forward
+
+class TestMixtralSparseMoeBlock(unittest.TestCase):
+    def setUp(self):
+        from transformers.models.mixtral.configuration_mixtral import MixtralConfig
+        from transformers.models.mixtral.modeling_mixtral import MixtralSparseMoeBlock
+        model_name_or_path = 'PATH_XXX'
+        import transformers
+        self.config = transformers.AutoConfig.from_pretrained(
+            model_name_or_path,
+        )
+        self.config.use_cache = False
+        self.config.output_router_logits = True
+        self.device = "cuda"
+        self.model = MixtralSparseMoeBlock(self.config)
+        self.model.to(self.device)
+
+    def test_forward_pass(self):
+        batch_size = 1
+        seqlen = 512
+        hidden_size = self.config.hidden_size
+        hidden_states = torch.randn(batch_size, seqlen, hidden_size, device=self.device)
+        with torch.no_grad():
+            output1, _ = self.model(hidden_states)
+            replace_mixtral_moe_with_dense_impl()
+            output2, _ = self.model(hidden_states)
+        rtol = 1e-3
+        atol = ((output1 + 0.3 - 0.3) - output1).abs().max().item()
+        assert torch.allclose(output1, output2, rtol=rtol, atol=2 * atol)
+
+if __name__ == '__main__':
+    unittest.main()
